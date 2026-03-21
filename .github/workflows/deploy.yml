@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [main, claude/plant-care-tracker-0IGQc]
+    branches: [main, master, claude/plant-care-tracker-0IGQc]
 
 permissions:
   contents: read
