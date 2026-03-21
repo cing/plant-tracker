@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { PLANT_TYPES, getDifficultyColor, getWateringStatus } from "./plantData";
 import "./App.css";
 
@@ -75,6 +75,75 @@ function AddPlantModal({ onAdd, onClose }) {
   );
 }
 
+function JournalModal({ plant, plantType, onAddNote, onClose }) {
+  const [text, setText] = useState("");
+  const bottomRef = useRef(null);
+
+  const handleAdd = (e) => {
+    e.preventDefault();
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onAddNote(plant.id, trimmed);
+    setText("");
+  };
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [plant.notes]);
+
+  const formatDate = (iso) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
+      " · " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal journal-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="journal-header">
+          <span className="tips-emoji">{plantType.emoji}</span>
+          <div>
+            <h2>{plant.nickname}</h2>
+            <p className="tips-type">Plant Journal</p>
+          </div>
+          <button className="btn-icon delete-btn journal-close" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="journal-notes">
+          {plant.notes.length === 0 ? (
+            <div className="journal-empty">
+              <span>📝</span>
+              <p>No entries yet. Add your first observation below!</p>
+            </div>
+          ) : (
+            plant.notes.map((note) => (
+              <div key={note.id} className="journal-entry">
+                <p className="journal-entry-text">{note.text}</p>
+                <span className="journal-entry-date">{formatDate(note.timestamp)}</span>
+              </div>
+            ))
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        <form className="journal-form" onSubmit={handleAdd}>
+          <textarea
+            className="journal-input"
+            placeholder="e.g. New leaf sprouting, moved to brighter spot…"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={3}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleAdd(e); }}
+          />
+          <button type="submit" className="btn-primary full-width" disabled={!text.trim()}>
+            + Add Entry
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function TipsModal({ plant, plantType, onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -109,7 +178,7 @@ function TipsModal({ plant, plantType, onClose }) {
   );
 }
 
-function PlantCard({ plant, plantType, onWater, onDelete, onShowTips }) {
+function PlantCard({ plant, plantType, onWater, onDelete, onShowTips, onShowJournal }) {
   const status = getWateringStatus(plant.lastWatered, plantType.wateringIntervalDays);
   const lastWateredDate = plant.lastWatered
     ? new Date(plant.lastWatered + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
@@ -155,6 +224,9 @@ function PlantCard({ plant, plantType, onWater, onDelete, onShowTips }) {
         </button>
         <button className="btn-tips" onClick={() => onShowTips(plant)}>
           🌿 Care tips
+        </button>
+        <button className="btn-journal" onClick={() => onShowJournal(plant)} title="Plant journal">
+          📓{plant.notes?.length > 0 && <span className="journal-badge">{plant.notes.length}</span>}
         </button>
       </div>
     </div>
@@ -208,6 +280,7 @@ export default function App() {
   });
   const [showAdd, setShowAdd] = useState(false);
   const [tipsPlant, setTipsPlant] = useState(null);
+  const [journalPlant, setJournalPlant] = useState(null);
   const [sort, setSort] = useState("urgency");
   const [filter, setFilter] = useState("all");
 
@@ -215,12 +288,19 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(plants));
   }, [plants]);
 
-  const addPlant = (plant) => setPlants((prev) => [...prev, plant]);
+  const addPlant = (plant) => setPlants((prev) => [...prev, { ...plant, notes: [] }]);
   const deletePlant = (id) => setPlants((prev) => prev.filter((p) => p.id !== id));
   const waterPlant = (id) =>
     setPlants((prev) =>
       prev.map((p) => (p.id === id ? { ...p, lastWatered: new Date().toISOString().split("T")[0] } : p))
     );
+  const addNote = (plantId, text) => {
+    const note = { id: Date.now(), text, timestamp: new Date().toISOString() };
+    setPlants((prev) =>
+      prev.map((p) => (p.id === plantId ? { ...p, notes: [...(p.notes || []), note] } : p))
+    );
+    setJournalPlant((prev) => prev ? { ...prev, notes: [...(prev.notes || []), note] } : prev);
+  };
 
   const getType = (typeId) => PLANT_TYPES.find((t) => t.id === typeId);
 
@@ -294,6 +374,7 @@ export default function App() {
                     onWater={waterPlant}
                     onDelete={deletePlant}
                     onShowTips={setTipsPlant}
+                    onShowJournal={setJournalPlant}
                   />
                 ))}
               </div>
@@ -308,6 +389,14 @@ export default function App() {
           plant={tipsPlant}
           plantType={getType(tipsPlant.typeId)}
           onClose={() => setTipsPlant(null)}
+        />
+      )}
+      {journalPlant && (
+        <JournalModal
+          plant={journalPlant}
+          plantType={getType(journalPlant.typeId)}
+          onAddNote={addNote}
+          onClose={() => setJournalPlant(null)}
         />
       )}
     </div>
