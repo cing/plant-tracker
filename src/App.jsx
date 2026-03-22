@@ -16,8 +16,7 @@ async function createSyncBlob(data) {
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const loc = res.headers.get("Location") || "";
-  const id = loc.split("/").pop();
+  const id = res.headers.get("x-jsonblob-id") || res.headers.get("Location")?.split("/").pop() || "";
   if (!id) throw new Error("No ID in response");
   return id;
 }
@@ -1102,7 +1101,7 @@ export default function App() {
 
   const handleConnectSync = useCallback(async (inputKey) => {
     const key = inputKey.trim();
-    if (!/^\d+$/.test(key)) { alert("Invalid sync key — it should be a number."); return; }
+    if (!/^[\w-]+$/.test(key)) { alert("Invalid sync key."); return; }
     setSyncStatus("syncing");
     try {
       const data = await readSyncBlob(key);
