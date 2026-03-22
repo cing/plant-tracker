@@ -598,67 +598,132 @@ input, select { font-family: inherit; }
 .step-back-btn:hover { border-color: var(--green); color: var(--green); }
 .step-title { color: var(--green); font-size: 1.25rem; }
 
-/* ── Photo Upload Zone ── */
-.photo-zone {
-  border: 2px dashed var(--border);
-  border-radius: 12px;
-  padding: 28px 20px;
-  text-align: center;
-  cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-.photo-zone:hover { border-color: var(--green); background: var(--green-light); }
-.photo-zone.has-photo { padding: 0; border-style: solid; border-color: var(--green); overflow: hidden; }
-.photo-zone input[type="file"] { display: none; }
-.photo-zone img { width: 100%; max-height: 220px; object-fit: cover; border-radius: 10px; display: block; }
-.photo-zone-icon { font-size: 2.4rem; }
-.photo-zone-label { font-size: 0.9rem; font-weight: 600; color: var(--text-muted); }
-.photo-zone-sublabel { font-size: 0.75rem; color: #aab8c2; }
-
-/* ── API Key Section ── */
-.api-key-section {
-  background: #f8fafb;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+/* ── iNaturalist Search ── */
+.search-form { display: flex; flex-direction: column; gap: 12px; }
+.search-input {
+  width: 100%;
   padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-.api-key-row { display: flex; align-items: center; justify-content: space-between; }
-.api-key-label { font-size: 0.78rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.4px; }
-.api-key-link { font-size: 0.75rem; color: var(--green); text-decoration: none; }
-.api-key-link:hover { text-decoration: underline; }
-.api-key-input-row { display: flex; gap: 6px; }
-.api-key-input {
-  flex: 1;
-  padding: 8px 10px;
   border: 1.5px solid var(--border);
-  border-radius: 7px;
-  font-size: 0.85rem;
-  font-family: monospace;
-  background: white;
+  border-radius: 10px;
+  font-size: 1rem;
   color: var(--text);
+  background: white;
   transition: border-color 0.2s;
 }
-.api-key-input:focus { outline: none; border-color: var(--green); }
-.api-key-toggle {
-  background: white;
+.search-input:focus { outline: none; border-color: var(--green); }
+
+/* ── iNaturalist Results Grid ── */
+.inat-results-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.inat-taxon-card {
   border: 1.5px solid var(--border);
-  border-radius: 7px;
-  padding: 0 12px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: white;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+.inat-taxon-card:hover {
+  border-color: var(--green);
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-2px);
+}
+
+.inat-taxon-photo {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}
+
+.inat-taxon-info {
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inat-common-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+.inat-sci-name {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-style: italic;
+  line-height: 1.2;
+}
+.inat-obs-count {
+  font-size: 0.62rem;
+  color: #aab8c2;
+  margin-top: 1px;
+}
+
+/* ── Taxon Confirm Header ── */
+.taxon-confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--green-light);
+  border: 1.5px solid var(--green);
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 4px;
+}
+
+.taxon-confirm-photo {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.taxon-confirm-names {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.taxon-confirm-common {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.taxon-confirm-sci {
   font-size: 0.8rem;
   color: var(--text-muted);
-  cursor: pointer;
-  transition: all 0.15s;
-  white-space: nowrap;
+  font-style: italic;
 }
-.api-key-toggle:hover { border-color: var(--green); color: var(--green); }
-.api-key-note { font-size: 0.7rem; color: #aab8c2; margin: 0; }
+
+.catalog-match-badge {
+  display: inline-block;
+  background: var(--green);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 2px 6px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  margin-top: 2px;
+  align-self: flex-start;
+}
 
 /* ── Identify Error ── */
 .identify-error {
@@ -690,50 +755,6 @@ input, select { font-family: inherit; }
 .identifying-text { font-size: 1rem; font-weight: 600; color: var(--text); margin: 0; }
 .identifying-sub { font-size: 0.82rem; color: var(--text-muted); margin: 0; }
 
-/* ── Results ── */
-.identify-result {
-  background: var(--green-light);
-  border: 1.5px solid var(--green);
-  border-radius: 10px;
-  padding: 14px 16px;
-}
-.identified-name { font-size: 1.1rem; font-weight: 700; color: var(--text); }
-.identified-confidence { font-size: 0.78rem; color: var(--text-muted); margin-top: 3px; }
-.conf-badge {
-  font-weight: 700;
-  border-radius: 4px;
-  padding: 1px 6px;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-}
-.conf-badge.conf-high { background: #e8f5e9; color: #2e7d32; }
-.conf-badge.conf-medium { background: #fff8e1; color: #f57f17; }
-.conf-badge.conf-low { background: #fce4ec; color: #c62828; }
-
-.results-section-label { font-size: 0.82rem; font-weight: 600; color: var(--text-muted); margin: 0; }
-
-.match-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 8px;
-}
-.match-card {
-  border: 1.5px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 8px;
-  text-align: center;
-  cursor: pointer;
-  background: white;
-  transition: all 0.15s;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.match-card:hover { border-color: var(--green); background: var(--green-light); transform: translateY(-2px); box-shadow: var(--shadow-hover); }
-.match-card-emoji { font-size: 2rem; }
-.match-card-name { font-size: 0.78rem; font-weight: 700; color: var(--text); line-height: 1.2; }
-.match-card-meta { font-size: 0.68rem; color: var(--text-muted); }
 
 /* ── Confirm Catalog ── */
 .confirm-type-card {
