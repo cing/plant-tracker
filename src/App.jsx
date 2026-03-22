@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { PLANT_TYPES, getDifficultyColor, getWateringStatus } from "./plantData";
 import "./App.css";
 
@@ -753,9 +753,57 @@ export default function App() {
   const [sort, setSort] = useState("urgency");
   const [filter, setFilter] = useState("all");
   const [viewMode, setViewMode] = useState("grid");
+  const [showDataMenu, setShowDataMenu] = useState(false);
+  const importRef = useRef(null);
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(plants)); }, [plants]);
   useEffect(() => { localStorage.setItem(CUSTOM_TYPES_KEY, JSON.stringify(customTypes)); }, [customTypes]);
+  useEffect(() => {
+    if (!showDataMenu) return;
+    const close = (e) => { if (!e.target.closest(".data-menu-wrap")) setShowDataMenu(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [showDataMenu]);
+
+  const handleExport = useCallback(() => {
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      plants,
+      customTypes,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `plant-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setShowDataMenu(false);
+  }, [plants, customTypes]);
+
+  const handleImportFile = useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!Array.isArray(data.plants)) throw new Error("Invalid backup file.");
+        const importedPlants = data.plants.length;
+        if (!window.confirm(
+          `Import ${importedPlants} plant${importedPlants !== 1 ? "s" : ""} from backup?\n\nThis will replace your current collection.`
+        )) return;
+        setPlants(data.plants);
+        setCustomTypes(Array.isArray(data.customTypes) ? data.customTypes : []);
+      } catch {
+        alert("Could not read backup file. Make sure it's a valid Plant Tracker export.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+    setShowDataMenu(false);
+  }, []);
 
   const getType = (typeId) =>
     [...PLANT_TYPES, ...customTypes].find((t) => t.id === typeId) ||
@@ -814,6 +862,22 @@ export default function App() {
             </div>
           </div>
           <div className="header-actions">
+            <div className="data-menu-wrap">
+              <button
+                className="btn-data-header"
+                onClick={() => setShowDataMenu((v) => !v)}
+                title="Export / Import data"
+              >
+                💾
+              </button>
+              {showDataMenu && (
+                <div className="data-menu" role="menu">
+                  <button className="data-menu-item" onClick={handleExport}>⬇ Export backup</button>
+                  <button className="data-menu-item" onClick={() => importRef.current?.click()}>⬆ Import backup</button>
+                </div>
+              )}
+            </div>
+            <input ref={importRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={handleImportFile} />
             <button className="btn-identify-header" onClick={() => setShowCustom(true)}>
               🔍 Find a Plant
             </button>

@@ -541,6 +541,50 @@ input, select { font-family: inherit; }
 /* ── Header Actions ── */
 .header-actions { display: flex; gap: 8px; align-items: center; }
 
+.data-menu-wrap { position: relative; }
+
+.btn-data-header {
+  background: rgba(255,255,255,0.15);
+  border: 1.5px solid rgba(255,255,255,0.5);
+  color: white;
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-data-header:hover { background: rgba(255,255,255,0.28); }
+
+.data-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: white;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  min-width: 170px;
+  overflow: hidden;
+  z-index: 200;
+}
+
+.data-menu-item {
+  display: block;
+  width: 100%;
+  padding: 11px 16px;
+  text-align: left;
+  background: none;
+  border: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.data-menu-item:hover { background: var(--green-light); color: var(--green); }
+.data-menu-item + .data-menu-item { border-top: 1px solid var(--border); }
+
 .btn-identify-header {
   background: rgba(255,255,255,0.15);
   border: 1.5px solid rgba(255,255,255,0.5);
