@@ -4,8 +4,41 @@ import "./App.css";
 
 const STORAGE_KEY = "plant-tracker-plants-v1";
 const CUSTOM_TYPES_KEY = "plant-tracker-custom-types-v1";
+const SYNC_KEY_STORAGE = "plant-tracker-sync-key-v1";
+const JSONBLOB_API = "https://jsonblob.com/api/jsonBlob";
 const STATUS_ORDER = { overdue: 0, today: 1, soon: 2, ok: 3, unknown: 4 };
 const PLANT_EMOJIS = ["🌿","🌱","🌳","🌴","🌵","🌸","🌺","🌻","🌹","💐","🍀","🪴","🌾","🍃","💜","🌲","🎋","🎍","🌼","🌷","🪷","🍁","🍂","🎄"];
+
+async function createSyncBlob(data) {
+  const res = await fetch(JSONBLOB_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const loc = res.headers.get("Location") || "";
+  const id = loc.split("/").pop();
+  if (!id) throw new Error("No ID in response");
+  return id;
+}
+
+async function readSyncBlob(id) {
+  const res = await fetch(`${JSONBLOB_API}/${id}`, {
+    headers: { "Accept": "application/json" },
+  });
+  if (res.status === 404) throw new Error("Sync key not found");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+async function writeSyncBlob(id, data) {
+  const res = await fetch(`${JSONBLOB_API}/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
 
 async function searchINaturalist(query) {
   const url = `https://api.inaturalist.org/v1/taxa?q=${encodeURIComponent(query)}&per_page=12&rank=species,genus&is_active=true&locale=en&iconic_taxa=Plantae`;
@@ -737,6 +770,79 @@ function SortBar({ sort, setSort, filter, setFilter, viewMode, setViewMode }) {
   );
 }
 
+function SyncModal({ syncKey, syncStatus, onCreateSync, onConnectSync, onDisconnect, onClose }) {
+  const [inputKey, setInputKey] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const copyKey = () => {
+    navigator.clipboard.writeText(syncKey).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const statusLabel = { idle: "", syncing: "Syncing…", synced: "Synced ✓", error: "Sync error" }[syncStatus] || "";
+  const statusClass = { syncing: "sync-status-syncing", synced: "sync-status-ok", error: "sync-status-error" }[syncStatus] || "";
+
+  return (
+    <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content sync-modal">
+        <button className="modal-close" onClick={onClose}>×</button>
+        <h2 className="modal-title">☁ Cloud Sync</h2>
+        <p className="sync-desc">Keep your plant data in sync across multiple browsers or devices using a unique sync key.</p>
+
+        {syncKey ? (
+          <div className="sync-connected">
+            <div className="sync-key-row">
+              <div>
+                <div className="sync-label">Your sync key</div>
+                <code className="sync-key-value">{syncKey}</code>
+              </div>
+              <button className="btn-secondary btn-sm" onClick={copyKey}>{copied ? "Copied!" : "Copy"}</button>
+            </div>
+            {statusLabel && <div className={`sync-status-badge ${statusClass}`}>{statusLabel}</div>}
+            <p className="sync-hint">Use this key on any other device to connect to the same data. Changes sync automatically within a few seconds.</p>
+            <button className="btn-danger btn-sm sync-disconnect" onClick={onDisconnect}>Disconnect sync</button>
+          </div>
+        ) : (
+          <div className="sync-setup">
+            <div className="sync-option">
+              <h3>Start fresh sync</h3>
+              <p>Create a new sync key linked to your current plants.</p>
+              <button className="btn-primary" onClick={onCreateSync} disabled={syncStatus === "syncing"}>
+                {syncStatus === "syncing" ? "Creating…" : "Create sync key"}
+              </button>
+            </div>
+            <div className="sync-divider">or</div>
+            <div className="sync-option">
+              <h3>Connect to existing key</h3>
+              <p>Enter a sync key from another device to load and share its data.</p>
+              <div className="sync-input-row">
+                <input
+                  className="sync-key-input"
+                  type="text"
+                  placeholder="Paste sync key…"
+                  value={inputKey}
+                  onChange={(e) => setInputKey(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && inputKey.trim() && onConnectSync(inputKey)}
+                />
+                <button
+                  className="btn-secondary"
+                  onClick={() => onConnectSync(inputKey)}
+                  disabled={!inputKey.trim() || syncStatus === "syncing"}
+                >
+                  {syncStatus === "syncing" ? "Connecting…" : "Connect"}
+                </button>
+              </div>
+              {syncStatus === "error" && <div className="sync-status-badge sync-status-error">Connection failed — check the key</div>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [plants, setPlants] = useState(() => {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); } catch { return []; }
@@ -754,16 +860,92 @@ export default function App() {
   const [filter, setFilter] = useState("all");
   const [viewMode, setViewMode] = useState("grid");
   const [showDataMenu, setShowDataMenu] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+  const [syncKey, setSyncKeyState] = useState(() => localStorage.getItem(SYNC_KEY_STORAGE) || "");
+  const [syncStatus, setSyncStatus] = useState("idle");
   const importRef = useRef(null);
+  const syncTimer = useRef(null);
+
+  const setSyncKey = useCallback((key) => {
+    setSyncKeyState(key);
+    if (key) localStorage.setItem(SYNC_KEY_STORAGE, key);
+    else localStorage.removeItem(SYNC_KEY_STORAGE);
+  }, []);
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(plants)); }, [plants]);
   useEffect(() => { localStorage.setItem(CUSTOM_TYPES_KEY, JSON.stringify(customTypes)); }, [customTypes]);
+
+  // Fetch remote data on mount if synced
+  useEffect(() => {
+    if (!syncKey) return;
+    setSyncStatus("syncing");
+    readSyncBlob(syncKey)
+      .then((data) => {
+        if (Array.isArray(data.plants)) setPlants(data.plants);
+        if (Array.isArray(data.customTypes)) setCustomTypes(data.customTypes);
+        setSyncStatus("synced");
+      })
+      .catch(() => setSyncStatus("error"));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-push to remote 2s after any change
+  useEffect(() => {
+    if (!syncKey) return;
+    clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => {
+      setSyncStatus("syncing");
+      writeSyncBlob(syncKey, { version: 1, plants, customTypes })
+        .then(() => setSyncStatus("synced"))
+        .catch(() => setSyncStatus("error"));
+    }, 2000);
+    return () => clearTimeout(syncTimer.current);
+  }, [plants, customTypes, syncKey]);
+
   useEffect(() => {
     if (!showDataMenu) return;
     const close = (e) => { if (!e.target.closest(".data-menu-wrap")) setShowDataMenu(false); };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [showDataMenu]);
+
+  const handleCreateSync = useCallback(async () => {
+    setSyncStatus("syncing");
+    try {
+      const id = await createSyncBlob({ version: 1, plants, customTypes });
+      setSyncKey(id);
+      setSyncStatus("synced");
+    } catch {
+      setSyncStatus("error");
+      alert("Failed to create sync. Check your internet connection.");
+    }
+  }, [plants, customTypes, setSyncKey]);
+
+  const handleConnectSync = useCallback(async (inputKey) => {
+    const key = inputKey.trim();
+    if (!/^\d+$/.test(key)) { alert("Invalid sync key — it should be a number."); return; }
+    setSyncStatus("syncing");
+    try {
+      const data = await readSyncBlob(key);
+      if (!Array.isArray(data.plants)) throw new Error("Invalid data");
+      if (plants.length > 0 && !window.confirm(
+        `Connect to sync?\n\nThis will replace your ${plants.length} local plant${plants.length !== 1 ? "s" : ""} with the synced data.`
+      )) { setSyncStatus("idle"); return; }
+      setPlants(data.plants);
+      setCustomTypes(Array.isArray(data.customTypes) ? data.customTypes : []);
+      setSyncKey(key);
+      setSyncStatus("synced");
+    } catch (err) {
+      setSyncStatus("error");
+      alert(err.message === "Sync key not found" ? "Sync key not found." : "Connection failed. Check the key and your internet.");
+    }
+  }, [plants.length, setSyncKey]);
+
+  const handleDisconnectSync = useCallback(() => {
+    if (!window.confirm("Stop syncing? Your local data will be kept but changes won't sync to other devices.")) return;
+    setSyncKey("");
+    setSyncStatus("idle");
+    setShowSyncModal(false);
+  }, [setSyncKey]);
 
   const handleExport = useCallback(() => {
     const payload = {
@@ -866,12 +1048,15 @@ export default function App() {
               <button
                 className="btn-data-header"
                 onClick={() => setShowDataMenu((v) => !v)}
-                title="Export / Import data"
+                title="Data options"
               >
-                💾
+                💾{syncKey && <span className={`sync-dot ${syncStatus === "synced" ? "sync-dot-ok" : syncStatus === "syncing" ? "sync-dot-syncing" : syncStatus === "error" ? "sync-dot-error" : ""}`} />}
               </button>
               {showDataMenu && (
                 <div className="data-menu" role="menu">
+                  <button className="data-menu-item" onClick={() => { setShowDataMenu(false); setShowSyncModal(true); }}>
+                    ☁ {syncKey ? (syncStatus === "synced" ? "Synced ✓" : syncStatus === "error" ? "Sync error ⚠" : "Syncing…") : "Set up sync"}
+                  </button>
                   <button className="data-menu-item" onClick={handleExport}>⬇ Export backup</button>
                   <button className="data-menu-item" onClick={() => importRef.current?.click()}>⬆ Import backup</button>
                 </div>
@@ -926,6 +1111,16 @@ export default function App() {
         )}
       </main>
 
+      {showSyncModal && (
+        <SyncModal
+          syncKey={syncKey}
+          syncStatus={syncStatus}
+          onCreateSync={handleCreateSync}
+          onConnectSync={handleConnectSync}
+          onDisconnect={handleDisconnectSync}
+          onClose={() => setShowSyncModal(false)}
+        />
+      )}
       {showAdd && <AddPlantModal onAdd={addPlant} onClose={() => setShowAdd(false)} />}
       {showCustom && (
         <AddCustomPlantModal
