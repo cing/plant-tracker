@@ -75,6 +75,76 @@ function AddPlantModal({ onAdd, onClose }) {
   );
 }
 
+function EditPlantModal({ plant, onSave, onClose }) {
+  const [selectedType, setSelectedType] = useState(plant.typeId);
+  const [nickname, setNickname] = useState(plant.nickname);
+  const [location, setLocation] = useState(plant.location || "");
+  const [lastWatered, setLastWatered] = useState(plant.lastWatered || new Date().toISOString().split("T")[0]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const type = PLANT_TYPES.find((p) => p.id === selectedType);
+    onSave(plant.id, {
+      typeId: selectedType,
+      nickname: nickname.trim() || type.name,
+      location: location.trim(),
+      lastWatered,
+    });
+    onClose();
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Edit Plant</h2>
+        <form onSubmit={handleSubmit}>
+          <label>
+            Plant Type *
+            <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)} required>
+              {PLANT_TYPES.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.emoji} {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Nickname
+            <input
+              type="text"
+              placeholder="e.g. Living Room Monstera"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+            />
+          </label>
+          <label>
+            Location
+            <input
+              type="text"
+              placeholder="e.g. Kitchen windowsill"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+            />
+          </label>
+          <label>
+            Last Watered
+            <input
+              type="date"
+              value={lastWatered}
+              max={new Date().toISOString().split("T")[0]}
+              onChange={(e) => setLastWatered(e.target.value)}
+            />
+          </label>
+          <div className="modal-actions">
+            <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary">Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function JournalModal({ plant, plantType, onAddNote, onClose }) {
   const [text, setText] = useState("");
   const bottomRef = useRef(null);
@@ -178,7 +248,7 @@ function TipsModal({ plant, plantType, onClose }) {
   );
 }
 
-function PlantCard({ plant, plantType, onWater, onDelete, onShowTips, onShowJournal }) {
+function PlantCard({ plant, plantType, onWater, onDelete, onEdit, onShowTips, onShowJournal }) {
   const status = getWateringStatus(plant.lastWatered, plantType.wateringIntervalDays);
   const lastWateredDate = plant.lastWatered
     ? new Date(plant.lastWatered + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
@@ -197,7 +267,10 @@ function PlantCard({ plant, plantType, onWater, onDelete, onShowTips, onShowJour
           <p className="plant-type">{plantType.name}</p>
           {plant.location && <p className="plant-location">📍 {plant.location}</p>}
         </div>
-        <button className="btn-icon delete-btn" onClick={() => onDelete(plant.id)} title="Remove plant">✕</button>
+        <div className="card-header-actions">
+          <button className="btn-icon edit-btn" onClick={() => onEdit(plant)} title="Edit plant">✏️</button>
+          <button className="btn-icon delete-btn" onClick={() => onDelete(plant.id)} title="Remove plant">✕</button>
+        </div>
       </div>
 
       <div className="card-divider" />
@@ -233,7 +306,30 @@ function PlantCard({ plant, plantType, onWater, onDelete, onShowTips, onShowJour
   );
 }
 
-function SortBar({ sort, setSort, filter, setFilter }) {
+function PlantRow({ plant, plantType, onWater, onDelete, onEdit, onShowTips, onShowJournal }) {
+  const status = getWateringStatus(plant.lastWatered, plantType.wateringIntervalDays);
+  return (
+    <div className={`plant-row status-${status.status}`}>
+      <span className="row-emoji">{plantType.emoji}</span>
+      <div className="row-info">
+        <span className="row-name">{plant.nickname}</span>
+        <span className="row-meta">{plantType.name}{plant.location && ` · 📍 ${plant.location}`}</span>
+      </div>
+      <span className="row-status" style={{ color: status.color }}>{status.label}</span>
+      <div className="row-actions">
+        <button className="row-btn" onClick={() => onWater(plant.id)} title="Water now">💧</button>
+        <button className="row-btn" onClick={() => onShowTips(plant)} title="Care tips">🌿</button>
+        <button className="row-btn row-btn-journal" onClick={() => onShowJournal(plant)} title="Journal">
+          📓{plant.notes?.length > 0 && <span className="journal-badge">{plant.notes.length}</span>}
+        </button>
+        <button className="row-btn" onClick={() => onEdit(plant)} title="Edit">✏️</button>
+        <button className="btn-icon delete-btn" onClick={() => onDelete(plant.id)} title="Remove">✕</button>
+      </div>
+    </div>
+  );
+}
+
+function SortBar({ sort, setSort, filter, setFilter, viewMode, setViewMode }) {
   const filters = [
     { key: "all", label: "All" },
     { key: "overdue", label: "🔴 Overdue" },
@@ -262,6 +358,18 @@ function SortBar({ sort, setSort, filter, setFilter }) {
           <option value="type">By type</option>
         </select>
       </div>
+      <div className="view-toggle">
+        <button
+          className={`view-btn ${viewMode === "grid" ? "active" : ""}`}
+          onClick={() => setViewMode("grid")}
+          title="Grid view"
+        >⊞</button>
+        <button
+          className={`view-btn ${viewMode === "list" ? "active" : ""}`}
+          onClick={() => setViewMode("list")}
+          title="List view"
+        >☰</button>
+      </div>
     </div>
   );
 }
@@ -279,10 +387,12 @@ export default function App() {
     }
   });
   const [showAdd, setShowAdd] = useState(false);
+  const [editingPlant, setEditingPlant] = useState(null);
   const [tipsPlant, setTipsPlant] = useState(null);
   const [journalPlant, setJournalPlant] = useState(null);
   const [sort, setSort] = useState("urgency");
   const [filter, setFilter] = useState("all");
+  const [viewMode, setViewMode] = useState("grid");
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(plants));
@@ -294,6 +404,8 @@ export default function App() {
     setPlants((prev) =>
       prev.map((p) => (p.id === id ? { ...p, lastWatered: new Date().toISOString().split("T")[0] } : p))
     );
+  const editPlant = (id, updates) =>
+    setPlants((prev) => prev.map((p) => (p.id === id ? { ...p, ...updates } : p)));
   const addNote = (plantId, text) => {
     const note = { id: Date.now(), text, timestamp: new Date().toISOString() };
     setPlants((prev) =>
@@ -322,6 +434,14 @@ export default function App() {
     if (sort === "type") return a.type.name.localeCompare(b.type.name);
     return 0;
   });
+
+  const sharedProps = {
+    onWater: waterPlant,
+    onDelete: deletePlant,
+    onEdit: setEditingPlant,
+    onShowTips: setTipsPlant,
+    onShowJournal: setJournalPlant,
+  };
 
   return (
     <div className="app">
@@ -361,21 +481,23 @@ export default function App() {
             <div className="plant-summary">
               <span>{plants.length} plant{plants.length !== 1 ? "s" : ""} in your home</span>
             </div>
-            <SortBar sort={sort} setSort={setSort} filter={filter} setFilter={setFilter} />
+            <SortBar
+              sort={sort} setSort={setSort}
+              filter={filter} setFilter={setFilter}
+              viewMode={viewMode} setViewMode={setViewMode}
+            />
             {sorted.length === 0 ? (
               <div className="empty-filter">No plants match this filter.</div>
-            ) : (
+            ) : viewMode === "grid" ? (
               <div className="plant-grid">
                 {sorted.map(({ plant, type }) => (
-                  <PlantCard
-                    key={plant.id}
-                    plant={plant}
-                    plantType={type}
-                    onWater={waterPlant}
-                    onDelete={deletePlant}
-                    onShowTips={setTipsPlant}
-                    onShowJournal={setJournalPlant}
-                  />
+                  <PlantCard key={plant.id} plant={plant} plantType={type} {...sharedProps} />
+                ))}
+              </div>
+            ) : (
+              <div className="plant-list">
+                {sorted.map(({ plant, type }) => (
+                  <PlantRow key={plant.id} plant={plant} plantType={type} {...sharedProps} />
                 ))}
               </div>
             )}
@@ -384,6 +506,13 @@ export default function App() {
       </main>
 
       {showAdd && <AddPlantModal onAdd={addPlant} onClose={() => setShowAdd(false)} />}
+      {editingPlant && (
+        <EditPlantModal
+          plant={editingPlant}
+          onSave={editPlant}
+          onClose={() => setEditingPlant(null)}
+        />
+      )}
       {tipsPlant && (
         <TipsModal
           plant={tipsPlant}
