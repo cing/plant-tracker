@@ -7,39 +7,21 @@ const CUSTOM_TYPES_KEY = "plant-tracker-custom-types-v1";
 const STATUS_ORDER = { overdue: 0, today: 1, soon: 2, ok: 3, unknown: 4 };
 const PLANT_EMOJIS = ["🌿","🌱","🌳","🌴","🌵","🌸","🌺","🌻","🌹","💐","🍀","🪴","🌾","🍃","💜","🌲","🎋","🎍","🌼","🌷","🪷","🍁","🍂","🎄"];
 
-async function identifyPlant(base64Image, mediaType, apiKey) {
-  const catalogList = PLANT_TYPES.map((p) => `${p.id}: ${p.name}`).join("\n");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: "claude-opus-4-6",
-      max_tokens: 1024,
-      messages: [{
-        role: "user",
-        content: [
-          { type: "image", source: { type: "base64", media_type: mediaType, data: base64Image } },
-          {
-            type: "text",
-            text: `Identify the plant in this photo. Our plant catalog:\n${catalogList}\n\nRespond with ONLY a valid JSON object — no markdown, no code fences:\n{"identified_name":"Common plant name","confidence":"high|medium|low","catalog_matches":["id1","id2"],"custom_suggestion":{"name":"...","emoji":"🌿","wateringIntervalDays":7,"difficulty":"Easy|Moderate|Hard","light":"...","tips":["tip1","tip2","tip3","tip4","tip5"]}}\n\ncatalog_matches: up to 3 IDs from the catalog that best match (empty array if none match well). custom_suggestion: always provide with accurate care info for the identified plant.`,
-          },
-        ],
-      }],
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Request failed (${res.status})`);
-  }
+async function searchINaturalist(query) {
+  const url = `https://api.inaturalist.org/v1/taxa?q=${encodeURIComponent(query)}&per_page=12&rank=species,genus&is_active=true&locale=en&iconic_taxa=Plantae`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`iNaturalist search failed (${res.status})`);
   const data = await res.json();
-  let text = data.content[0].text.trim();
-  text = text.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?\s*```$/, "");
-  return JSON.parse(text);
+  return data.results.filter((t) => t.default_photo);
+}
+
+function findCatalogMatch(taxon) {
+  const common = (taxon.preferred_common_name || "").toLowerCase();
+  const sci = (taxon.name || "").toLowerCase();
+  return PLANT_TYPES.find((p) => {
+    const pn = p.name.toLowerCase();
+    return common === pn || common.includes(pn) || pn.includes(common.split(" ")[0]) || sci.startsWith(pn.split(" ")[0]);
+  });
 }
 
 function AddPlantModal({ onAdd, onClose }) {
@@ -94,22 +76,19 @@ function AddPlantModal({ onAdd, onClose }) {
 
 function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
   const today = new Date().toISOString().split("T")[0];
-  // Steps: 'photo' | 'identifying' | 'results' | 'confirm' | 'manual'
-  const [step, setStep] = useState("photo");
+  // Steps: 'search' | 'searching' | 'results' | 'confirm' | 'manual'
+  const [step, setStep] = useState("search");
 
-  // Photo + API key
-  const [photoBase64, setPhotoBase64] = useState(null);
-  const [photoMediaType, setPhotoMediaType] = useState(null);
-  const [photoPreview, setPhotoPreview] = useState(null);
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem("plant-tracker-api-key") || "");
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [identifyResult, setIdentifyResult] = useState(null);
-  const [identifyError, setIdentifyError] = useState("");
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchError, setSearchError] = useState("");
 
-  // Catalog match selection
-  const [selectedType, setSelectedType] = useState(null);
+  // Selected iNaturalist taxon
+  const [selectedTaxon, setSelectedTaxon] = useState(null);
+  const [catalogMatch, setCatalogMatch] = useState(null);
 
-  // Plant instance fields (shared across steps)
+  // Plant instance fields
   const [nickname, setNickname] = useState("");
   const [location, setLocation] = useState("");
   const [lastWatered, setLastWatered] = useState(today);
@@ -122,54 +101,38 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
   const [light, setLight] = useState("");
   const [tips, setTips] = useState(["", "", "", "", ""]);
 
-  const handlePhotoFile = (file) => {
-    if (!file) return;
-    const mt = file.type || "image/jpeg";
-    if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(mt)) {
-      setIdentifyError("Unsupported format. Please use JPEG, PNG, GIF, or WebP.");
-      return;
-    }
-    setIdentifyError("");
-    setPhotoPreview(URL.createObjectURL(file));
-    setPhotoMediaType(mt);
-    const reader = new FileReader();
-    reader.onload = (ev) => setPhotoBase64(ev.target.result.split(",")[1]);
-    reader.readAsDataURL(file);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) handlePhotoFile(file);
-  };
-
-  const handleIdentify = async () => {
-    if (!photoBase64 || !apiKey.trim()) return;
-    localStorage.setItem("plant-tracker-api-key", apiKey.trim());
-    setIdentifyError("");
-    setStep("identifying");
+  const handleSearch = async (e) => {
+    e?.preventDefault();
+    const q = searchQuery.trim();
+    if (!q) return;
+    setSearchError("");
+    setStep("searching");
     try {
-      const result = await identifyPlant(photoBase64, photoMediaType, apiKey.trim());
-      setIdentifyResult(result);
-      if (result.custom_suggestion) {
-        const s = result.custom_suggestion;
-        setName(result.identified_name || s.name || "");
-        setEmoji(PLANT_EMOJIS.includes(s.emoji) ? s.emoji : "🌿");
-        setWateringDays(Math.max(1, Number(s.wateringIntervalDays) || 7));
-        setDifficulty(["Easy", "Moderate", "Hard"].includes(s.difficulty) ? s.difficulty : "Easy");
-        setLight(s.light || "");
-        const t = Array.isArray(s.tips) ? s.tips : [];
-        setTips([...t, "", "", "", "", ""].slice(0, 5));
+      const results = await searchINaturalist(q);
+      if (results.length === 0) {
+        setSearchError("No plants found. Try a different name.");
+        setStep("search");
+        return;
       }
+      setSearchResults(results);
       setStep("results");
     } catch (err) {
-      setIdentifyError(err.message);
-      setStep("photo");
+      setSearchError(err.message);
+      setStep("search");
     }
   };
 
-  const handleSelectCatalogType = (type) => {
-    setSelectedType(type);
+  const handleSelectTaxon = (taxon) => {
+    setSelectedTaxon(taxon);
+    const commonName = taxon.preferred_common_name || taxon.name;
+    setName(commonName);
+    const match = findCatalogMatch(taxon);
+    setCatalogMatch(match || null);
+    if (match) {
+      setWateringDays(match.wateringIntervalDays);
+      setDifficulty(match.difficulty);
+      setLight(match.light);
+    }
     setNickname("");
     setLocation("");
     setLastWatered(today);
@@ -180,8 +143,8 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
     e.preventDefault();
     onAddCatalog({
       id: Date.now(),
-      typeId: selectedType.id,
-      nickname: nickname.trim() || selectedType.name,
+      typeId: catalogMatch.id,
+      nickname: nickname.trim() || catalogMatch.name,
       location: location.trim(),
       lastWatered,
     });
@@ -211,18 +174,18 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
   };
 
   const goBack = () => {
-    if (step === "results") setStep("photo");
+    if (step === "results") setStep("search");
     else if (step === "confirm") setStep("results");
-    else if (step === "manual") setStep(identifyResult ? "results" : "photo");
+    else if (step === "manual") setStep("search");
   };
 
   const canGoBack = ["results", "confirm", "manual"].includes(step);
 
   const stepTitles = {
-    photo: "Unknown Plant",
-    identifying: "Identifying…",
-    results: "Results",
-    confirm: selectedType ? `Add ${selectedType.name}` : "Confirm",
+    search: "Find Your Plant",
+    searching: "Searching…",
+    results: `Results for "${searchQuery}"`,
+    confirm: selectedTaxon ? (selectedTaxon.preferred_common_name || selectedTaxon.name) : "Confirm",
     manual: "Custom Plant Details",
   };
 
@@ -237,162 +200,178 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
           <button className="btn-icon delete-btn" type="button" onClick={onClose}>✕</button>
         </div>
 
-        {/* ── PHOTO STEP ── */}
-        {step === "photo" && (
+        {/* ── SEARCH STEP ── */}
+        {step === "search" && (
           <div className="custom-step">
-            <p className="step-hint">Upload a photo to identify your plant, or skip to add details manually.</p>
-
-            <label
-              className={`photo-zone ${photoPreview ? "has-photo" : ""}`}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-            >
+            <p className="step-hint">Search iNaturalist's database of millions of plants — browse real community photos to find your species.</p>
+            <form onSubmit={handleSearch} className="search-form">
               <input
-                type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp"
-                onChange={(e) => handlePhotoFile(e.target.files[0])}
+                type="text"
+                className="search-input"
+                placeholder="e.g. Monstera, Snake plant, Fiddle leaf fig…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoFocus
               />
-              {photoPreview ? (
-                <img src={photoPreview} alt="Plant" />
-              ) : (
-                <>
-                  <span className="photo-zone-icon">📷</span>
-                  <span className="photo-zone-label">Click or drag a photo here</span>
-                  <span className="photo-zone-sublabel">JPEG · PNG · WebP · GIF</span>
-                </>
-              )}
-            </label>
-
-            {photoBase64 && (
-              <div className="api-key-section">
-                <div className="api-key-row">
-                  <span className="api-key-label">Anthropic API Key</span>
-                  <a
-                    href="https://console.anthropic.com/settings/keys"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="api-key-link"
-                  >
-                    Get free key ↗
-                  </a>
-                </div>
-                <div className="api-key-input-row">
-                  <input
-                    type={showApiKey ? "text" : "password"}
-                    placeholder="sk-ant-..."
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    className="api-key-input"
-                  />
-                  <button type="button" className="api-key-toggle" onClick={() => setShowApiKey((v) => !v)}>
-                    {showApiKey ? "Hide" : "Show"}
-                  </button>
-                </div>
-                <p className="api-key-note">Stored locally in your browser · only sent to Anthropic</p>
+              {searchError && <div className="identify-error">{searchError}</div>}
+              <div className="modal-actions">
+                <button type="button" className="btn-secondary" onClick={() => setStep("manual")}>Add manually →</button>
+                <button type="submit" className="btn-primary" disabled={!searchQuery.trim()}>🔍 Search</button>
               </div>
-            )}
-
-            {identifyError && <div className="identify-error">{identifyError}</div>}
-
-            <div className="modal-actions">
-              <button type="button" className="btn-secondary" onClick={() => setStep("manual")}>
-                Skip → Add manually
-              </button>
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={!photoBase64 || !apiKey.trim()}
-                onClick={handleIdentify}
-              >
-                🔍 Identify Plant
-              </button>
-            </div>
+            </form>
           </div>
         )}
 
-        {/* ── IDENTIFYING STEP ── */}
-        {step === "identifying" && (
+        {/* ── SEARCHING STEP ── */}
+        {step === "searching" && (
           <div className="identifying-state">
             <div className="spinner" />
-            <p className="identifying-text">Analyzing your plant…</p>
-            <p className="identifying-sub">This may take a few seconds</p>
+            <p className="identifying-text">Searching iNaturalist…</p>
+            <p className="identifying-sub">Powered by millions of community observations</p>
           </div>
         )}
 
         {/* ── RESULTS STEP ── */}
-        {step === "results" && identifyResult && (() => {
-          const matches = (identifyResult.catalog_matches || [])
-            .map((id) => PLANT_TYPES.find((p) => p.id === id))
-            .filter(Boolean);
-          return (
-            <div className="custom-step">
-              <div className="identify-result">
-                <div className="identified-name">{identifyResult.identified_name}</div>
-                <div className="identified-confidence">
-                  Confidence:{" "}
-                  <span className={`conf-badge conf-${identifyResult.confidence}`}>
-                    {identifyResult.confidence}
-                  </span>
-                </div>
-              </div>
+        {step === "results" && (
+          <div className="custom-step">
+            <p className="step-hint">Tap the plant that matches yours to add it.</p>
+            <div className="inat-results-grid">
+              {searchResults.map((taxon) => (
+                <button
+                  key={taxon.id}
+                  type="button"
+                  className="inat-taxon-card"
+                  onClick={() => handleSelectTaxon(taxon)}
+                >
+                  <img
+                    src={taxon.default_photo.square_url}
+                    alt={taxon.preferred_common_name || taxon.name}
+                    className="inat-taxon-photo"
+                    loading="lazy"
+                  />
+                  <div className="inat-taxon-info">
+                    <span className="inat-common-name">{taxon.preferred_common_name || taxon.name}</span>
+                    <span className="inat-sci-name">{taxon.name}</span>
+                    {taxon.observations_count > 0 && (
+                      <span className="inat-obs-count">{taxon.observations_count.toLocaleString()} obs.</span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <button type="button" className="btn-secondary full-width" onClick={() => setStep("manual")}>
+              None of these → Add manually
+            </button>
+          </div>
+        )}
 
-              {matches.length > 0 && (
-                <>
-                  <p className="results-section-label">Tap a match from our catalog to add it:</p>
-                  <div className="match-cards">
-                    {matches.map((type) => (
-                      <button
-                        type="button"
-                        key={type.id}
-                        className="match-card"
-                        onClick={() => handleSelectCatalogType(type)}
-                      >
-                        <span className="match-card-emoji">{type.emoji}</span>
-                        <span className="match-card-name">{type.name}</span>
-                        <span className="match-card-meta">{type.difficulty} · 💧 {type.wateringIntervalDays}d</span>
+        {/* ── CONFIRM STEP ── */}
+        {step === "confirm" && selectedTaxon && (
+          <div className="custom-step">
+            <div className="taxon-confirm-header">
+              {selectedTaxon.default_photo && (
+                <img
+                  src={selectedTaxon.default_photo.square_url}
+                  alt={selectedTaxon.preferred_common_name || selectedTaxon.name}
+                  className="taxon-confirm-photo"
+                />
+              )}
+              <div className="taxon-confirm-names">
+                <span className="taxon-confirm-common">{selectedTaxon.preferred_common_name || selectedTaxon.name}</span>
+                <span className="taxon-confirm-sci">{selectedTaxon.name}</span>
+                {catalogMatch && <span className="catalog-match-badge">In our catalog</span>}
+              </div>
+            </div>
+
+            {catalogMatch ? (
+              <>
+                <div className="confirm-type-card">
+                  <span className="confirm-emoji">{catalogMatch.emoji}</span>
+                  <div>
+                    <div className="confirm-name">{catalogMatch.name}</div>
+                    <div className="confirm-meta">
+                      {catalogMatch.difficulty} · 💡 {catalogMatch.light} · 💧 Every {catalogMatch.wateringIntervalDays}d
+                    </div>
+                  </div>
+                </div>
+                <form onSubmit={handleConfirmCatalog} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                  <label>
+                    Nickname
+                    <input type="text" placeholder={catalogMatch.name} value={nickname} onChange={(e) => setNickname(e.target.value)} />
+                  </label>
+                  <label>
+                    Location
+                    <input type="text" placeholder="e.g. Living room shelf" value={location} onChange={(e) => setLocation(e.target.value)} />
+                  </label>
+                  <label>
+                    Last Watered
+                    <input type="date" value={lastWatered} max={today} onChange={(e) => setLastWatered(e.target.value)} />
+                  </label>
+                  <div className="modal-actions">
+                    <button type="button" className="btn-secondary" onClick={() => setCatalogMatch(null)}>Use custom care info</button>
+                    <button type="submit" className="btn-primary">Add Plant ✓</button>
+                  </div>
+                </form>
+              </>
+            ) : (
+              <form onSubmit={handleSubmitCustom} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                <div className="emoji-name-row">
+                  <label className="emoji-label">
+                    Emoji
+                    <select className="emoji-select-input" value={emoji} onChange={(e) => setEmoji(e.target.value)}>
+                      {PLANT_EMOJIS.map((em) => (
+                        <option key={em} value={em}>{em}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={{ flex: 1 }}>
+                    Plant Name *
+                    <input type="text" value={name} onChange={(e) => setName(e.target.value)} required />
+                  </label>
+                </div>
+                <label>
+                  Watering Interval
+                  <div className="watering-interval-row">
+                    <span>Every</span>
+                    <input type="number" min="1" max="90" value={wateringDays} onChange={(e) => setWateringDays(Number(e.target.value))} className="interval-input" />
+                    <span>days</span>
+                  </div>
+                </label>
+                <div className="form-field">
+                  <span className="form-field-label">Difficulty</span>
+                  <div className="difficulty-btns">
+                    {["Easy", "Moderate", "Hard"].map((d) => (
+                      <button type="button" key={d} className={`diff-btn ${difficulty === d ? "active" : ""}`} onClick={() => setDifficulty(d)}
+                        style={difficulty === d ? { background: getDifficultyColor(d), color: "white", borderColor: getDifficultyColor(d) } : {}}>
+                        {d}
                       </button>
                     ))}
                   </div>
-                </>
-              )}
-
-              <button type="button" className="btn-secondary full-width" onClick={() => setStep("manual")}>
-                ➕ Add as custom plant {identifyResult.custom_suggestion ? "(pre-filled)" : ""}
-              </button>
-            </div>
-          );
-        })()}
-
-        {/* ── CONFIRM CATALOG STEP ── */}
-        {step === "confirm" && selectedType && (
-          <div className="custom-step">
-            <div className="confirm-type-card">
-              <span className="confirm-emoji">{selectedType.emoji}</span>
-              <div>
-                <div className="confirm-name">{selectedType.name}</div>
-                <div className="confirm-meta">
-                  {selectedType.difficulty} · 💡 {selectedType.light} · 💧 Every {selectedType.wateringIntervalDays}d
                 </div>
-              </div>
-            </div>
-            <form onSubmit={handleConfirmCatalog} style={{ display: "flex", flexDirection: "column", gap: "14px", marginTop: "16px" }}>
-              <label>
-                Nickname
-                <input type="text" placeholder={selectedType.name} value={nickname} onChange={(e) => setNickname(e.target.value)} />
-              </label>
-              <label>
-                Location
-                <input type="text" placeholder="e.g. Living room shelf" value={location} onChange={(e) => setLocation(e.target.value)} />
-              </label>
-              <label>
-                Last Watered
-                <input type="date" value={lastWatered} max={today} onChange={(e) => setLastWatered(e.target.value)} />
-              </label>
-              <div className="modal-actions">
-                <button type="button" className="btn-secondary" onClick={() => setStep("results")}>← Back</button>
-                <button type="submit" className="btn-primary">Add Plant ✓</button>
-              </div>
-            </form>
+                <label>
+                  Light Requirements
+                  <input type="text" placeholder="e.g. Bright indirect" value={light} onChange={(e) => setLight(e.target.value)} />
+                </label>
+                <hr className="form-section-divider" />
+                <p className="form-section-label">Plant Details</p>
+                <label>
+                  Nickname
+                  <input type="text" placeholder={name || "My Plant"} value={nickname} onChange={(e) => setNickname(e.target.value)} />
+                </label>
+                <label>
+                  Location
+                  <input type="text" placeholder="e.g. Kitchen windowsill" value={location} onChange={(e) => setLocation(e.target.value)} />
+                </label>
+                <label>
+                  Last Watered
+                  <input type="date" value={lastWatered} max={today} onChange={(e) => setLastWatered(e.target.value)} />
+                </label>
+                <div className="modal-actions">
+                  <button type="button" className="btn-secondary" onClick={goBack}>← Back</button>
+                  <button type="submit" className="btn-primary" disabled={!name.trim()}>Add Plant ✓</button>
+                </div>
+              </form>
+            )}
           </div>
         )}
 
@@ -836,7 +815,7 @@ export default function App() {
           </div>
           <div className="header-actions">
             <button className="btn-identify-header" onClick={() => setShowCustom(true)}>
-              🔍 Identify / Custom
+              🔍 Find a Plant
             </button>
             <button className="btn-primary btn-add-header" onClick={() => setShowAdd(true)}>
               + Add Plant
@@ -859,7 +838,7 @@ export default function App() {
             <p>Add your first plant to start tracking its watering schedule and get personalized care tips.</p>
             <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
               <button className="btn-primary btn-large" onClick={() => setShowAdd(true)}>+ Add from catalog</button>
-              <button className="btn-secondary btn-large" onClick={() => setShowCustom(true)}>🔍 Identify / Custom</button>
+              <button className="btn-secondary btn-large" onClick={() => setShowCustom(true)}>🔍 Find a Plant</button>
             </div>
           </div>
         ) : (
