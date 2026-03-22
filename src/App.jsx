@@ -49,7 +49,7 @@ async function searchINaturalist(query) {
 }
 
 const PLANTNET_KEY_STORAGE = "plant-tracker-plantnet-key";
-const PLANTNET_WORKER_URL = "https://proud-cloud-e483.ing-chris.workers.dev";
+const PLANTNET_WORKER_URL = "https://white-mode-0730.ing-chris.workers.dev";
 
 async function identifyWithPlantNet(imageFile, apiKey) {
   const formData = new FormData();
