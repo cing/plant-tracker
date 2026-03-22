@@ -49,13 +49,13 @@ async function searchINaturalist(query) {
 }
 
 const PLANTNET_KEY_STORAGE = "plant-tracker-plantnet-key";
-const PLANTNET_WORKER_STORAGE = "plant-tracker-plantnet-worker";
+const PLANTNET_WORKER_URL = "https://proud-cloud-e483.ing-chris.workers.dev";
 
-async function identifyWithPlantNet(imageFile, apiKey, workerUrl) {
+async function identifyWithPlantNet(imageFile, apiKey) {
   const formData = new FormData();
   formData.append("images", imageFile);
   formData.append("organs", "auto");
-  const res = await fetch(workerUrl, {
+  const res = await fetch(PLANTNET_WORKER_URL, {
     method: "POST",
     headers: { "X-Plantnet-Key": apiKey },
     body: formData,
@@ -144,9 +144,7 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
 
   // Photo identification state
   const [plantNetKey, setPlantNetKeyState] = useState(() => (localStorage.getItem(PLANTNET_KEY_STORAGE) || "").trim());
-  const [plantNetWorker, setPlantNetWorkerState] = useState(() => (localStorage.getItem(PLANTNET_WORKER_STORAGE) || "").trim());
   const [plantNetKeyInput, setPlantNetKeyInput] = useState("");
-  const [plantNetWorkerInput, setPlantNetWorkerInput] = useState("");
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const photoInputRef = useRef(null);
@@ -172,14 +170,10 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
 
   const savePlantNetKey = () => {
     const key = plantNetKeyInput.trim();
-    const worker = plantNetWorkerInput.trim();
-    if (!key || !worker) return;
+    if (!key) return;
     localStorage.setItem(PLANTNET_KEY_STORAGE, key);
-    localStorage.setItem(PLANTNET_WORKER_STORAGE, worker);
     setPlantNetKeyState(key);
-    setPlantNetWorkerState(worker);
     setPlantNetKeyInput("");
-    setPlantNetWorkerInput("");
   };
 
   const handlePhotoSelect = (e) => {
@@ -191,11 +185,11 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
   };
 
   const handlePhotoIdentify = async () => {
-    if (!photoFile || !plantNetKey || !plantNetWorker) return;
+    if (!photoFile || !plantNetKey) return;
     setSearchError("");
     setStep("searching");
     try {
-      const plantNetResults = await identifyWithPlantNet(photoFile, plantNetKey, plantNetWorker);
+      const plantNetResults = await identifyWithPlantNet(photoFile, plantNetKey);
       if (!plantNetResults.length) {
         setSearchError("No plants identified. Try a clearer photo.");
         setStep("search");
@@ -361,33 +355,24 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
               </>
             ) : (
               <div className="photo-identify-pane">
-                {!plantNetKey || !plantNetWorker ? (
+                {!plantNetKey ? (
                   <div className="plantnet-setup">
                     <div className="plantnet-icon">🌿</div>
                     <p className="step-hint">Photo ID uses <strong>PlantNet</strong> — AI trained on millions of plant photos.</p>
                     <p className="step-hint" style={{ marginTop: 0 }}>
-                      Get a free API key at <strong>my.plantnet.org</strong>, then deploy <code>worker.js</code> to Cloudflare Workers and paste both URLs below.
+                      Get a free API key at <strong>my.plantnet.org</strong>, then paste it below.
                     </p>
                     <div className="sync-input-row" style={{ marginTop: "14px" }}>
                       <input
                         type="text"
                         className="sync-key-input"
-                        placeholder="PlantNet API key…"
+                        placeholder="Paste PlantNet API key…"
                         value={plantNetKeyInput}
                         onChange={(e) => setPlantNetKeyInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && savePlantNetKey()}
                         autoFocus
                       />
-                    </div>
-                    <div className="sync-input-row" style={{ marginTop: "8px" }}>
-                      <input
-                        type="text"
-                        className="sync-key-input"
-                        placeholder="Cloudflare Worker URL…"
-                        value={plantNetWorkerInput}
-                        onChange={(e) => setPlantNetWorkerInput(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && savePlantNetKey()}
-                      />
-                      <button type="button" className="btn-primary" onClick={savePlantNetKey} disabled={!plantNetKeyInput.trim() || !plantNetWorkerInput.trim()}>Save</button>
+                      <button type="button" className="btn-primary" onClick={savePlantNetKey} disabled={!plantNetKeyInput.trim()}>Save</button>
                     </div>
                   </div>
                 ) : (
@@ -411,7 +396,7 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
                     </label>
                     {searchError && <div className="identify-error">{searchError}</div>}
                     <div className="modal-actions">
-                      <button type="button" className="btn-secondary btn-sm" onClick={() => { localStorage.removeItem(PLANTNET_KEY_STORAGE); localStorage.removeItem(PLANTNET_WORKER_STORAGE); setPlantNetKeyState(""); setPlantNetWorkerState(""); }}>
+                      <button type="button" className="btn-secondary btn-sm" onClick={() => { localStorage.removeItem(PLANTNET_KEY_STORAGE); setPlantNetKeyState(""); }}>
                         Change key
                       </button>
                       <button type="button" className="btn-primary" onClick={handlePhotoIdentify} disabled={!photoFile}>
