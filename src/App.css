@@ -686,6 +686,69 @@ input, select { font-family: inherit; }
 .step-back-btn:hover { border-color: var(--green); color: var(--green); }
 .step-title { color: var(--green); font-size: 1.25rem; }
 
+/* ── Search mode tabs ── */
+.search-mode-tabs {
+  display: flex;
+  gap: 6px;
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 16px;
+}
+.mode-tab {
+  flex: 1;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  border-radius: 7px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.mode-tab:hover { background: rgba(0,0,0,0.05); color: var(--text); }
+.mode-tab-active { background: white; color: var(--green); box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+
+/* ── Photo identification ── */
+.photo-identify-pane { display: flex; flex-direction: column; gap: 14px; }
+
+.plantnet-setup { text-align: center; padding: 8px 0; }
+.plantnet-icon { font-size: 2.5rem; margin-bottom: 10px; }
+
+.photo-drop-zone {
+  display: block;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.2s, background 0.2s;
+  min-height: 140px;
+  background: var(--bg);
+}
+.photo-drop-zone:hover, .photo-drop-zone:focus { border-color: var(--green); background: var(--green-light); outline: none; }
+.photo-drop-zone-filled { border-style: solid; border-color: var(--green); }
+
+.photo-drop-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 32px 16px;
+}
+.photo-drop-icon { font-size: 2rem; }
+.photo-drop-text { font-size: 0.9rem; font-weight: 600; color: var(--text); }
+.photo-drop-sub { font-size: 0.8rem; color: var(--text-muted); }
+
+.photo-preview-img {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  display: block;
+}
+
 /* ── iNaturalist Search ── */
 .search-form { display: flex; flex-direction: column; gap: 12px; }
 .search-input {

@@ -48,6 +48,23 @@ async function searchINaturalist(query) {
   return data.results.filter((t) => t.default_photo);
 }
 
+const PLANTNET_KEY_STORAGE = "plant-tracker-plantnet-key";
+
+async function identifyWithPlantNet(imageFile, apiKey) {
+  const formData = new FormData();
+  formData.append("images", imageFile);
+  formData.append("organs", "auto");
+  const res = await fetch(
+    `https://my-api.plantnet.org/v2/identify/all?api-key=${encodeURIComponent(apiKey)}&lang=en&nb-results=8`,
+    { method: "POST", body: formData }
+  );
+  if (res.status === 401) throw new Error("Invalid PlantNet API key. Check your key and try again.");
+  if (res.status === 404) throw new Error("No plants identified. Try a clearer photo showing leaves or flowers.");
+  if (!res.ok) throw new Error(`Identification failed (${res.status})`);
+  const data = await res.json();
+  return data.results || [];
+}
+
 function findCatalogMatch(taxon) {
   const common = (taxon.preferred_common_name || "").toLowerCase();
   const sci = (taxon.name || "").toLowerCase();
@@ -113,9 +130,19 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
   const [step, setStep] = useState("search");
 
   // Search state
+  const [searchMode, setSearchMode] = useState("text"); // "text" | "photo"
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [searchError, setSearchError] = useState("");
+
+  // Photo identification state
+  const [plantNetKey, setPlantNetKeyState] = useState(() => localStorage.getItem(PLANTNET_KEY_STORAGE) || "");
+  const [plantNetKeyInput, setPlantNetKeyInput] = useState("");
+  const [photoFile, setPhotoFile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const photoInputRef = useRef(null);
+
+  useEffect(() => () => { if (photoPreview) URL.revokeObjectURL(photoPreview); }, [photoPreview]);
 
   // Selected iNaturalist taxon
   const [selectedTaxon, setSelectedTaxon] = useState(null);
@@ -133,6 +160,61 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
   const [difficulty, setDifficulty] = useState("Easy");
   const [light, setLight] = useState("");
   const [tips, setTips] = useState(["", "", "", "", ""]);
+
+  const savePlantNetKey = () => {
+    const key = plantNetKeyInput.trim();
+    if (!key) return;
+    localStorage.setItem(PLANTNET_KEY_STORAGE, key);
+    setPlantNetKeyState(key);
+    setPlantNetKeyInput("");
+  };
+
+  const handlePhotoSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  };
+
+  const handlePhotoIdentify = async () => {
+    if (!photoFile || !plantNetKey) return;
+    setSearchError("");
+    setStep("searching");
+    try {
+      const plantNetResults = await identifyWithPlantNet(photoFile, plantNetKey);
+      if (!plantNetResults.length) {
+        setSearchError("No plants identified. Try a clearer photo.");
+        setStep("search");
+        return;
+      }
+      // Cross-reference each PlantNet result with iNaturalist for rich taxon data
+      const taxaPromises = plantNetResults.slice(0, 6).map(async (r) => {
+        const sciName = r.species?.scientificNameWithoutAuthor || "";
+        try {
+          const inatResults = await searchINaturalist(sciName);
+          if (inatResults.length > 0) return { ...inatResults[0], _plantNetScore: r.score };
+        } catch { /* fall through to PlantNet fallback */ }
+        const fallbackPhoto = r.images?.[0]?.url?.s;
+        if (!fallbackPhoto) return null;
+        return {
+          id: `pn_${sciName}`,
+          name: sciName,
+          preferred_common_name: r.species?.commonNames?.[0] || sciName,
+          default_photo: { square_url: fallbackPhoto },
+          observations_count: 0,
+          _plantNetScore: r.score,
+        };
+      });
+      const taxa = (await Promise.all(taxaPromises)).filter(Boolean);
+      if (!taxa.length) { setSearchError("Couldn't match photo to plant data. Try a different photo."); setStep("search"); return; }
+      setSearchResults(taxa);
+      setStep("results");
+    } catch (err) {
+      setSearchError(err.message);
+      setStep("search");
+    }
+  };
 
   const handleSearch = async (e) => {
     e?.preventDefault();
@@ -207,7 +289,7 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
   };
 
   const goBack = () => {
-    if (step === "results") setStep("search");
+    if (step === "results") { setStep("search"); setPhotoFile(null); setPhotoPreview(null); }
     else if (step === "confirm") setStep("results");
     else if (step === "manual") setStep("search");
   };
@@ -216,8 +298,8 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
 
   const stepTitles = {
     search: "Find Your Plant",
-    searching: "Searching…",
-    results: `Results for "${searchQuery}"`,
+    searching: searchMode === "photo" ? "Identifying…" : "Searching…",
+    results: searchMode === "photo" ? "Photo Matches" : `Results for "${searchQuery}"`,
     confirm: selectedTaxon ? (selectedTaxon.preferred_common_name || selectedTaxon.name) : "Confirm",
     manual: "Custom Plant Details",
   };
@@ -236,22 +318,88 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
         {/* ── SEARCH STEP ── */}
         {step === "search" && (
           <div className="custom-step">
-            <p className="step-hint">Search iNaturalist's database of millions of plants — browse real community photos to find your species.</p>
-            <form onSubmit={handleSearch} className="search-form">
-              <input
-                type="text"
-                className="search-input"
-                placeholder="e.g. Monstera, Snake plant, Fiddle leaf fig…"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                autoFocus
-              />
-              {searchError && <div className="identify-error">{searchError}</div>}
-              <div className="modal-actions">
-                <button type="button" className="btn-secondary" onClick={() => setStep("manual")}>Add manually →</button>
-                <button type="submit" className="btn-primary" disabled={!searchQuery.trim()}>🔍 Search</button>
+            <div className="search-mode-tabs">
+              <button type="button" className={`mode-tab ${searchMode === "text" ? "mode-tab-active" : ""}`} onClick={() => setSearchMode("text")}>
+                🔍 Search by name
+              </button>
+              <button type="button" className={`mode-tab ${searchMode === "photo" ? "mode-tab-active" : ""}`} onClick={() => setSearchMode("photo")}>
+                📷 Upload photo
+              </button>
+            </div>
+
+            {searchMode === "text" ? (
+              <>
+                <p className="step-hint">Search iNaturalist's database of millions of plants — browse real community photos to find your species.</p>
+                <form onSubmit={handleSearch} className="search-form">
+                  <input
+                    type="text"
+                    className="search-input"
+                    placeholder="e.g. Monstera, Snake plant, Fiddle leaf fig…"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    autoFocus
+                  />
+                  {searchError && <div className="identify-error">{searchError}</div>}
+                  <div className="modal-actions">
+                    <button type="button" className="btn-secondary" onClick={() => setStep("manual")}>Add manually →</button>
+                    <button type="submit" className="btn-primary" disabled={!searchQuery.trim()}>🔍 Search</button>
+                  </div>
+                </form>
+              </>
+            ) : (
+              <div className="photo-identify-pane">
+                {!plantNetKey ? (
+                  <div className="plantnet-setup">
+                    <div className="plantnet-icon">🌿</div>
+                    <p className="step-hint">Photo ID uses <strong>PlantNet</strong> — AI trained on millions of plant photos.</p>
+                    <p className="step-hint" style={{ marginTop: 0 }}>
+                      Get a free API key at <strong>my.plantnet.org</strong>, then paste it below.
+                    </p>
+                    <div className="sync-input-row" style={{ marginTop: "14px" }}>
+                      <input
+                        type="text"
+                        className="sync-key-input"
+                        placeholder="Paste PlantNet API key…"
+                        value={plantNetKeyInput}
+                        onChange={(e) => setPlantNetKeyInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && savePlantNetKey()}
+                        autoFocus
+                      />
+                      <button type="button" className="btn-primary" onClick={savePlantNetKey} disabled={!plantNetKeyInput.trim()}>Save</button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="step-hint">Upload a clear photo of your plant — a leaf, flower, or the whole plant works best.</p>
+                    <label
+                      className={`photo-drop-zone ${photoPreview ? "photo-drop-zone-filled" : ""}`}
+                      tabIndex={0}
+                      onKeyDown={(e) => e.key === "Enter" && photoInputRef.current?.click()}
+                    >
+                      {photoPreview ? (
+                        <img src={photoPreview} alt="Plant to identify" className="photo-preview-img" />
+                      ) : (
+                        <div className="photo-drop-inner">
+                          <span className="photo-drop-icon">📷</span>
+                          <span className="photo-drop-text">Click to choose a photo</span>
+                          <span className="photo-drop-sub">or take one with your camera</span>
+                        </div>
+                      )}
+                      <input ref={photoInputRef} type="file" accept="image/*" onChange={handlePhotoSelect} style={{ display: "none" }} />
+                    </label>
+                    {searchError && <div className="identify-error">{searchError}</div>}
+                    <div className="modal-actions">
+                      <button type="button" className="btn-secondary btn-sm" onClick={() => { localStorage.removeItem(PLANTNET_KEY_STORAGE); setPlantNetKeyState(""); }}>
+                        Change key
+                      </button>
+                      <button type="button" className="btn-primary" onClick={handlePhotoIdentify} disabled={!photoFile}>
+                        🔍 Identify plant
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
-            </form>
+            )}
           </div>
         )}
 
@@ -259,8 +407,8 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
         {step === "searching" && (
           <div className="identifying-state">
             <div className="spinner" />
-            <p className="identifying-text">Searching iNaturalist…</p>
-            <p className="identifying-sub">Powered by millions of community observations</p>
+            <p className="identifying-text">{searchMode === "photo" ? "Identifying your plant…" : "Searching iNaturalist…"}</p>
+            <p className="identifying-sub">{searchMode === "photo" ? "Powered by PlantNet AI" : "Powered by millions of community observations"}</p>
           </div>
         )}
 
@@ -285,9 +433,11 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
                   <div className="inat-taxon-info">
                     <span className="inat-common-name">{taxon.preferred_common_name || taxon.name}</span>
                     <span className="inat-sci-name">{taxon.name}</span>
-                    {taxon.observations_count > 0 && (
+                    {taxon._plantNetScore != null ? (
+                      <span className="inat-obs-count">{Math.round(taxon._plantNetScore * 100)}% match</span>
+                    ) : taxon.observations_count > 0 ? (
                       <span className="inat-obs-count">{taxon.observations_count.toLocaleString()} obs.</span>
-                    )}
+                    ) : null}
                   </div>
                 </button>
               ))}
