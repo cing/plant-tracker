@@ -154,6 +154,7 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
   // Selected iNaturalist taxon
   const [selectedTaxon, setSelectedTaxon] = useState(null);
   const [catalogMatch, setCatalogMatch] = useState(null);
+  const [catalogMatchConfirmed, setCatalogMatchConfirmed] = useState(null);
 
   // Plant instance fields
   const [nickname, setNickname] = useState("");
@@ -258,6 +259,7 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
     setNickname("");
     setLocation("");
     setLastWatered(today);
+    setCatalogMatchConfirmed(null);
     setStep("confirm");
   };
 
@@ -473,7 +475,26 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
               </div>
             </div>
 
-            {catalogMatch ? (
+            {catalogMatch && catalogMatchConfirmed === null ? (
+              <>
+                <p className="catalog-confirm-question">
+                  We found a possible match in our catalog. Is this plant a <strong>{catalogMatch.name}</strong>?
+                </p>
+                <div className="confirm-type-card">
+                  <span className="confirm-emoji">{catalogMatch.emoji}</span>
+                  <div>
+                    <div className="confirm-name">{catalogMatch.name}</div>
+                    <div className="confirm-meta">
+                      {catalogMatch.difficulty} · 💡 {catalogMatch.light} · 💧 Every {catalogMatch.wateringIntervalDays}d
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-actions">
+                  <button type="button" className="btn-secondary" onClick={() => { setCatalogMatch(null); setCatalogMatchConfirmed(null); }}>No, use custom info</button>
+                  <button type="button" className="btn-primary" onClick={() => setCatalogMatchConfirmed(true)}>Yes, use {catalogMatch.name} care</button>
+                </div>
+              </>
+            ) : catalogMatch && catalogMatchConfirmed === true ? (
               <>
                 <div className="confirm-type-card">
                   <span className="confirm-emoji">{catalogMatch.emoji}</span>
@@ -498,7 +519,7 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
                     <input type="date" value={lastWatered} max={today} onChange={(e) => setLastWatered(e.target.value)} />
                   </label>
                   <div className="modal-actions">
-                    <button type="button" className="btn-secondary" onClick={() => setCatalogMatch(null)}>Use custom care info</button>
+                    <button type="button" className="btn-secondary" onClick={() => { setCatalogMatch(null); setCatalogMatchConfirmed(null); }}>Use custom care info</button>
                     <button type="submit" className="btn-primary">Add Plant ✓</button>
                   </div>
                 </form>
