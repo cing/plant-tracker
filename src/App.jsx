@@ -251,10 +251,12 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
     setName(commonName);
     const match = findCatalogMatch(taxon);
     setCatalogMatch(match || null);
-    if (match) {
-      setWateringDays(match.wateringIntervalDays);
-      setDifficulty(match.difficulty);
-      setLight(match.light);
+    // Only pre-fill care fields from catalog if there's no match (custom path).
+    // If there is a match, fields are populated only after the user confirms it.
+    if (!match) {
+      setWateringDays(7);
+      setDifficulty("Easy");
+      setLight("");
     }
     setNickname("");
     setLocation("");
@@ -491,7 +493,7 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
                 </div>
                 <div className="modal-actions">
                   <button type="button" className="btn-secondary" onClick={() => { setCatalogMatch(null); setCatalogMatchConfirmed(null); }}>No, use custom info</button>
-                  <button type="button" className="btn-primary" onClick={() => setCatalogMatchConfirmed(true)}>Yes, use {catalogMatch.name} care</button>
+                  <button type="button" className="btn-primary" onClick={() => { setWateringDays(catalogMatch.wateringIntervalDays); setDifficulty(catalogMatch.difficulty); setLight(catalogMatch.light); setCatalogMatchConfirmed(true); }}>Yes, use {catalogMatch.name} care</button>
                 </div>
               </>
             ) : catalogMatch && catalogMatchConfirmed === true ? (
