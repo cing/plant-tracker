@@ -59,6 +59,7 @@ async function identifyWithPlantNet(imageFile, apiKey) {
     { method: "POST", body: formData }
   );
   if (res.status === 401) throw new Error("Invalid PlantNet API key. Check your key and try again.");
+  if (res.status === 403) throw new Error("API key rejected (403). Make sure you've activated your key at my.plantnet.org and accepted the Terms of Service.");
   if (res.status === 404) throw new Error("No plants identified. Try a clearer photo showing leaves or flowers.");
   if (!res.ok) throw new Error(`Identification failed (${res.status})`);
   const data = await res.json();
@@ -136,7 +137,7 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
   const [searchError, setSearchError] = useState("");
 
   // Photo identification state
-  const [plantNetKey, setPlantNetKeyState] = useState(() => localStorage.getItem(PLANTNET_KEY_STORAGE) || "");
+  const [plantNetKey, setPlantNetKeyState] = useState(() => (localStorage.getItem(PLANTNET_KEY_STORAGE) || "").trim());
   const [plantNetKeyInput, setPlantNetKeyInput] = useState("");
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
