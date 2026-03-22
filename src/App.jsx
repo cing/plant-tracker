@@ -49,15 +49,17 @@ async function searchINaturalist(query) {
 }
 
 const PLANTNET_KEY_STORAGE = "plant-tracker-plantnet-key";
+const PLANTNET_WORKER_URL = "https://white-mode-0730.ing-chris.workers.dev";
 
 async function identifyWithPlantNet(imageFile, apiKey) {
   const formData = new FormData();
   formData.append("images", imageFile);
   formData.append("organs", "auto");
-  const res = await fetch(
-    `https://my-api.plantnet.org/v2/identify/all?api-key=${encodeURIComponent(apiKey)}&lang=en&nb-results=8`,
-    { method: "POST", body: formData }
-  );
+  const res = await fetch(PLANTNET_WORKER_URL, {
+    method: "POST",
+    headers: { "X-Plantnet-Key": apiKey },
+    body: formData,
+  });
   if (!res.ok) {
     let detail = "";
     try { detail = (await res.json()).message || ""; } catch {}
