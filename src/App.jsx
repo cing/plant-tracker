@@ -137,7 +137,7 @@ function AddCustomPlantModal({ onAdd, onAddCatalog, onClose }) {
   const [searchError, setSearchError] = useState("");
 
   // Photo identification state
-  const [plantNetKey, setPlantNetKeyState] = useState(() => localStorage.getItem(PLANTNET_KEY_STORAGE) || "");
+  const [plantNetKey, setPlantNetKeyState] = useState(() => (localStorage.getItem(PLANTNET_KEY_STORAGE) || "").trim());
   const [plantNetKeyInput, setPlantNetKeyInput] = useState("");
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
