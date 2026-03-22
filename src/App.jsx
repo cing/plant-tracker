@@ -58,10 +58,14 @@ async function identifyWithPlantNet(imageFile, apiKey) {
     `https://my-api.plantnet.org/v2/identify/all?api-key=${encodeURIComponent(apiKey)}&lang=en&nb-results=8`,
     { method: "POST", body: formData }
   );
-  if (res.status === 401) throw new Error("Invalid PlantNet API key. Check your key and try again.");
-  if (res.status === 403) throw new Error("API key rejected (403). Make sure you've activated your key at my.plantnet.org and accepted the Terms of Service.");
-  if (res.status === 404) throw new Error("No plants identified. Try a clearer photo showing leaves or flowers.");
-  if (!res.ok) throw new Error(`Identification failed (${res.status})`);
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.json()).message || ""; } catch {}
+    if (res.status === 401) throw new Error(`Invalid PlantNet API key. Check your key and try again.${detail ? ` (${detail})` : ""}`);
+    if (res.status === 403) throw new Error(`Access denied (403).${detail ? ` PlantNet says: ${detail}` : ""}`);
+    if (res.status === 404) throw new Error("No plants identified. Try a clearer photo showing leaves or flowers.");
+    throw new Error(`Identification failed (${res.status})${detail ? `: ${detail}` : ""}`);
+  }
   const data = await res.json();
   return data.results || [];
 }
